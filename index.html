@@ -193,9 +193,9 @@ function drawAurora(){
   let stormBoost=constrain(map(solarWind.bz,-5,0,2.5,0.5),0.5,2.5);
   let isStorm=solarWind.bz<-2&&solarWind.speed>450;
   
-  // bloom glow via canvas shadow
-  drawingContext.shadowBlur=40;
-  drawingContext.shadowColor='rgba(0,255,128,0.4)';
+  // glow via canvas shadow
+  drawingContext.shadowBlur=20;
+  drawingContext.shadowColor='rgba(0,255,128,0.25)';
   blendMode(ADD);
   
   for(let bi=0;bi<auroraBands.length;bi++){
@@ -208,62 +208,62 @@ function drawAurora(){
     if(solarWind.speed>550)h=lerp(h,25,intensity*0.7);
     if(isStorm)h=lerp(h,280,constrain(abs(solarWind.bz+2)/5,0,0.3));
     
-    // bloom layers - wide soft glow
-    for(let layer=0;layer<6;layer++){
-      let ly=layer*10;
-      let a=map(layer,0,6,50,5)*intensity*stormBoost;
-      let bandAmp=band.amp*(1+layer*0.35);
-      let br=lerp(60,100,1-layer/6);
-      let sat=lerp(90,55,layer/6);
-      let sw=lerp(22,2,6-layer);
+    // soft glow layers - fewer, lower alpha
+    for(let layer=0;layer<4;layer++){
+      let ly=layer*8;
+      let a=map(layer,0,4,35,8)*intensity*stormBoost;
+      let bandAmp=band.amp*(1+layer*0.25);
+      let br=lerp(55,80,1-layer/4);
+      let sat=lerp(85,60,layer/4);
+      let sw=lerp(16,4,4-layer);
       stroke(h,sat,br,a);
       strokeWeight(sw);
       noFill();
       beginShape();
       for(let x=0;x<=width;x+=5){
         let y=yBase+ly+sin(x*band.freq+band.phase)*bandAmp*intensity;
-        y+=noise(x*0.003+bi,fc*0.0015)*45*intensity;
-        y+=sin(x*0.0015+fc*0.0025+bi)*20*stormBoost;
-        y+=noise(x*0.008+fc*0.005)*12;
+        y+=noise(x*0.003+bi,fc*0.0015)*40*intensity;
+        y+=sin(x*0.0015+fc*0.0025+bi)*18*stormBoost;
+        y+=noise(x*0.008+fc*0.005)*10;
         vertex(x,y);
       }
       endShape();
     }
     
     // bright core line per band
-    drawingContext.shadowBlur=12;
-    stroke(h,85,100,80*intensity*stormBoost);
-    strokeWeight(1.8);
+    drawingContext.shadowBlur=8;
+    stroke(h,90,95,60*intensity*stormBoost);
+    strokeWeight(1.5);
     noFill();
     beginShape();
-    for(let x=0;x<=width;x+=2){
+    for(let x=0;x<=width;x+=3){
       let y=yBase+sin(x*band.freq+band.phase)*band.amp*intensity;
-      y+=noise(x*0.005+bi,fc*0.002)*28*intensity;
+      y+=noise(x*0.005+bi,fc*0.002)*22*intensity;
       vertex(x,y);
     }
     endShape();
-    drawingContext.shadowBlur=40;
+    drawingContext.shadowBlur=20;
     
     // vertical aurora rays during storms
-    if(isStorm&&bi<5){
-      drawingContext.shadowBlur=10;
-      let rayCount=floor(width/8);
+    if(isStorm&&bi<4){
+      drawingContext.shadowBlur=8;
+      let rayCount=floor(width/10);
       for(let ri=0;ri<rayCount;ri++){
-        let rx=ri*8+sin(fc*0.02+ri)*3;
-        let yTop=yBase+sin(rx*band.freq+band.phase)*band.amp*intensity+noise(rx*0.004,fc*0.0015)*30;
-        let rayH=random(40,120)*intensity*stormBoost;
-        let ra=random(20,55)*intensity;
-        let flicker=0.5+sin(fc*0.08+rx*0.05)*0.5;
+        let rx=ri*10+sin(fc*0.02+ri)*3;
+        let yTop=yBase+sin(rx*band.freq+band.phase)*band.amp*intensity+noise(rx*0.004,fc*0.0015)*25;
+        let rayH=random(30,100)*intensity*stormBoost;
+        let ra=random(15,40)*intensity;
+        let flicker=0.6+sin(fc*0.08+rx*0.05)*0.4;
         for(let dy=0;dy<rayH;dy+=2){
           let ra2=ra*map(dy,0,rayH,1,0)*flicker;
-          if(ra2<4)continue;
-          fill(h,80,95,ra2);
+          if(ra2<3)continue;
+          fill(h,75,90,ra2);
           noStroke();
           let sway=sin(fc*0.015+rx*0.04+dy*0.05)*4;
-          rect(rx+sway,yTop-dy,2.5,2);
+          rect(rx+sway,yTop-dy,2,2);
         }
       }
-      drawingContext.shadowBlur=40;
+      drawingContext.shadowBlur=20;
     }
   }
   
