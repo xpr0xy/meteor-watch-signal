@@ -127,52 +127,59 @@ function drawStars(){
 }
 
 function drawAurora(){
-  let intensity=constrain(map(solarWind.speed,300,800,0.3,1),0.2,1.2);
-  let stormBoost=constrain(map(solarWind.bz,-5,0,1.8,0.3),0.3,1.8);
+  let intensity=constrain(map(solarWind.speed,300,800,0.3,1.0),0.2,1.3);
+  let stormBoost=constrain(map(solarWind.bz,-5,0,2.0,0.3),0.3,2.0);
   let isStorm=solarWind.bz<-2&&solarWind.speed>450;
+  
+  // draw with additive blending for glow
+  blendMode(ADD);
   
   for(let bi=0;bi<auroraBands.length;bi++){
     let band=auroraBands[bi];
     band.phase+=band.speed*solarWind.speed/400;
     let yBase=band.y+sin(fc*0.002)*10;
     
-    // hue shifts based on solar conditions
     let h=band.baseHue;
-    if(solarWind.bz<0)h=lerp(h,340,constrain(abs(solarWind.bz)/6,0,0.5));
-    if(solarWind.speed>550)h=lerp(h,30,intensity*0.35);
+    if(solarWind.bz<0)h=lerp(h,340,constrain(abs(solarWind.bz)/6,0,0.6));
+    if(solarWind.speed>550)h=lerp(h,30,intensity*0.4);
     
-    // main band shape
-    for(let layer=0;layer<3;layer++){
-      let ly=layer*15;
-      let a=map(layer,0,3,55,15)*intensity*stormBoost;
-      let bandAmp=band.amp*(1+layer*0.25);
+    for(let layer=0;layer<4;layer++){
+      let ly=layer*18;
+      let a=map(layer,0,4,90,20)*intensity*stormBoost;
+      let bandAmp=band.amp*(1+layer*0.3);
+      let br=lerp(70,100,1-layer/4);
+      let sat=lerp(80,60,layer/4);
       
       beginShape();
+      vertex(0,height); // start bottom-left
       for(let x=0;x<=width;x+=3){
         let y=yBase+ly+sin(x*band.freq+band.phase)*bandAmp*intensity;
-        y+=noise(x*0.005+layer,fc*0.003)*30*intensity;
-        y+=sin(x*0.003+fc*0.004+layer)*12*stormBoost;
-        fill(h,60+layer*10,50+layer*10,a);
+        y+=noise(x*0.005+layer,fc*0.003)*35*intensity;
+        y+=sin(x*0.003+fc*0.004+layer)*15*stormBoost;
+        fill(h,sat,br,a);
         vertex(x,y);
       }
-      endShape();
+      vertex(width,height); // close at bottom-right
+      endShape(CLOSE);
     }
     
-    // aurora rays (vertical structures) during storms (inside layer loop)
-    if(isStorm&&bi<2){
-      for(let x=0;x<width;x+=25){
+    // vertical rays during storms
+    if(isStorm&&bi<3){
+      for(let x=0;x<width;x+=20){
         let yTop=yBase+sin(x*band.freq+band.phase)*band.amp*intensity;
-        let rayH=random(30,80)*intensity*stormBoost;
-        let ra=random(10,30)*intensity;
-        for(let dy=0;dy<rayH;dy+=3){
+        let rayH=random(40,100)*intensity*stormBoost;
+        let ra=random(20,45)*intensity;
+        for(let dy=0;dy<rayH;dy+=2){
           let ra2=ra*map(dy,0,rayH,1,0);
-          if(ra2<2)continue;
-          fill(h,70,60,ra2);
-          rect(x+sin(fc*0.01+x)*5,yTop+dy,2,3);
+          if(ra2<3)continue;
+          fill(h,85,90,ra2);
+          rect(x+sin(fc*0.008+x*0.02)*8,yTop+dy,2,2);
         }
       }
     }
   }
+  
+  blendMode(BLEND);
 }
 
 function drawParticles(){
