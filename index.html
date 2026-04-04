@@ -6,49 +6,54 @@
 <title>pr0xy // solar wind aurora</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#000}
+html,body{width:100%;height:100%;overflow:hidden;background:#030308}
 canvas{display:block;width:100%!important;height:100%!important}
-#hud{position:fixed;top:12px;left:16px;font-family:'Courier New',monospace;font-size:11px;color:#0f8;z-index:10;pointer-events:none;text-shadow:0 0 4px #0f8;white-space:pre;line-height:1.4}
-#sound-btn{position:fixed;bottom:20px;right:20px;z-index:20;background:rgba(0,255,128,0.15);border:1px solid #0f8;color:#0f8;padding:8px 16px;font-family:'Courier New',monospace;font-size:12px;cursor:pointer;border-radius:2px;text-transform:uppercase;letter-spacing:2px}
-#sound-btn:hover{background:rgba(0,255,128,0.3)}
-#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Courier New',monospace;font-size:14px;color:#0f8;z-index:100;text-align:center}
+#hud{position:fixed;top:10px;left:10px;font-family:'Courier New',monospace;font-size:10px;color:#0f8;z-index:10;pointer-events:none;text-shadow:0 0 6px rgba(0,255,128,0.5);white-space:pre;line-height:1.45;background:rgba(0,0,0,0.4);padding:8px 12px;border:1px solid rgba(0,255,128,0.15);border-radius:2px}
+#sound-btn{position:fixed;bottom:16px;right:16px;z-index:20;background:rgba(0,255,128,0.08);border:1px solid rgba(0,255,128,0.4);color:#0f8;padding:6px 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;border-radius:2px;text-transform:uppercase;letter-spacing:2px;backdrop-filter:blur(4px)}
+#sound-btn:hover{background:rgba(0,255,128,0.2);border-color:#0f8}
+#sound-btn.active{color:#f80;border-color:rgba(255,136,0,0.5)}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Courier New',monospace;font-size:13px;color:#0f8;z-index:100;text-align:center;text-shadow:0 0 10px rgba(0,255,128,0.6)}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
-<div id="loading">connecting to noaa swpc feed...</div>
+<div id="loading">◌ connecting to noaa swpc feed...</div>
 <div id="hud"></div>
 <button id="sound-btn">enable sound</button>
 <script>
 const NOAA_PLASMA='https://services.swpc.noaa.gov/products/solar-wind/plasma-2-hour.json';
 const NOAA_MAG='https://services.swpc.noaa.gov/products/solar-wind/mag-2-hour.json';
+
+// current NOAA column layout:
+// plasma: [time_tag, density, speed, temperature]
+// mag:    [time_tag, bx, by, bz, lon, lat, bt]
 let solarWind={speed:400,density:5,bz:0.5,bt:3};
 let particles=[];
 let auroraBands=[];
 let stars=[];
 let audioCtx=null,audioEnabled=false;
-let masterGain,drone1,drone2,drone3,noiseSrc,noiseFilter,lfo1,lfo2;
-let frameCount2=0;
+let masterGain,drone1,drone2,drone3,sunSrc,sunFilter,delay,feedback,lfo1,lfo2,lfo3;
+let fc=0;
 let dataLoaded=false;
-const MAX_PARTICLES=200;
+const MAX_P=300;
 
 async function loadSolarData(){
   try{
-    const pRes=await fetch(NOAA_PLASMA);
-    const pData=await pRes.json();
-    const mRes=await fetch(NOAA_MAG);
-    const mData=await mRes.json();
-    const latestP=pData[pData.length-1];
-    const latestM=mData[mData.length-1];
-    solarWind.speed=parseFloat(latestP[2])||400;
-    solarWind.density=parseFloat(latestP[3])||5;
-    solarWind.bz=parseFloat(latestM[3])||0.5;
-    solarWind.bt=parseFloat(latestM[4])||3;
+    let pRes=await fetch(NOAA_PLASMA);
+    let mData=await pRes.json();
+    let mRes=await fetch(NOAA_MAG);
+    let mgn=mRes.json();
+    let [p,gn]=[mData,await mgn];
+    let lp=p[p.length-1],lm=gn[gn.length-1];
+    solarWind.density=parseFloat(lp[1])||5;
+    solarWind.speed=parseFloat(lp[2])||400;
+    solarWind.bz=parseFloat(lm[3])||0.5;
+    solarWind.bt=parseFloat(lm[6])||3;
     dataLoaded=true;
     document.getElementById('loading').style.display='none';
   }catch(e){
-    console.warn('using fallback data:',e);
-    solarWind.speed=450+random(-50,100);
+    console.warn('NOAA fallback:',e);
+    solarWind.speed=450+random(-30,60);
     solarWind.density=3+random(-1,4);
     solarWind.bz=-2+random(4);
     solarWind.bt=2+random(3);
@@ -63,141 +68,172 @@ function setup(){
   colorMode(HSB,360,100,100,100);
   frameRate(60);
   noStroke();
-  for(let i=0;i<300;i++){
-    stars.push({x:random(width),y:random(height*0.7),s:random(0.5,2),b:random(40,100),twinkleSpeed:random(0.01,0.05)});
+  for(let i=0;i<400;i++){
+    stars.push({x:random(width),y:random(height*0.8),s:random(0.3,2.2),b:random(30,100),ts:random(0.008,0.06),ph:random(TWO_PI)});
   }
-  for(let i=0;i<5;i++){
-    auroraBands.push({y:height*0.25+i*height*0.08,phase:random(TWO_PI),freq:random(0.005,0.015),amp:random(30,80),speed:random(0.002,0.008),hue:random(90,160)});
+  for(let i=0;i<6;i++){
+    auroraBands.push({
+      y:height*(0.15+i*0.09),
+      ph:random(TWO_PI),
+      freq:random(0.003,0.012),
+      amp:random(20,60),
+      spd:random(0.001,0.006),
+      hue:80+i*15
+    });
   }
   loadSolarData();
   document.getElementById('sound-btn').addEventListener('click',toggleAudio);
 }
 
 function draw(){
-  frameCount2++;
-  background(230,60,3);
+  fc++;
+  background(230,50,2);
+  
+  // subtle gradient base
+  for(let y=height*0.15;y<height*0.7;y+=2){
+    let a=map(y,height*0.15,height*0.7,12,0);
+    fill(180+cos(fc*0.002)*20,40,15,a);
+    rect(0,y,width,2);
+  }
+  
   drawStars();
   drawAurora();
   drawParticles();
   drawScanlines();
   updateHUD();
-  updateAudioParams();
-  if(frameCount2%600===0&&dataLoaded)refreshData();
+  updateAudio();
+  if(fc%600===0&&dataLoaded)refreshData();
+}
+
+function lerpColorHSB(from,to,amt){
+  return color(lerp(hue(from),hue(to),amt),lerp(saturation(from),saturation(to),amt),lerp(brightness(from),brightness(to),amt));
 }
 
 function drawStars(){
   for(let s of stars){
-    let bright=s.b+sin(frameCount2*s.twinkleSpeed)*20;
-    fill(0,0,bright,80);
+    let b=s.b+sin(fc*s.ts+s.ph)*25;
+    fill(0,0,max(min(b,100),0),70);
     circle(s.x,s.y,s.s);
   }
 }
 
 function drawAurora(){
-  let intensity=map(solarWind.speed,300,800,0.3,1);
-  let stormBoost=constrain(map(solarWind.bz,-5,0,1.5,0),0,1.5);
-  for(let band of auroraBands){
-    band.phase+=band.speed*solarWind.speed/400;
-    let yBase=band.y+sin(frameCount2*0.003)*10;
+  let intensity=constrain(map(solarWind.speed,300,800,0.4,1),0.2,1.2);
+  let stormBoost=constrain(map(solarWind.bz,-5,0,1.8,0.3),0.3,1.8);
+  let southBz=solarWind.bz<0;
+  
+  for(let i=0;i<auroraBands.length;i++){
+    let band=auroraBands[i];
+    band.ph+=band.spd*solarWind.speed/400;
+    
     let h=band.hue;
-    if(solarWind.bz<-2)h=lerp(h,340,stormBoost*0.5);
-    beginShape();
-    vertex(0,height);
-    for(let x=0;x<=width;x+=4){
-      let y=yBase+sin(x*band.freq+band.phase)*band.amp*intensity;
-      y+=noise(x*0.005,band.phase)*40*intensity;
-      let alpha=map(abs(y-yBase),0,band.amp*intensity,70,5)*stormBoost;
-      alpha=constrain(alpha,5,80);
-      fill(h,70,60,alpha);
-      vertex(x,y);
-    }
-    vertex(width,height);
-    endShape(CLOSE);
-    for(let layer=0;layer<3;layer++){
+    if(southBz) h=lerp(h, 340+random(-20,20), stormBoost*0.4);
+    if(solarWind.speed>550) h=lerp(h, 25+random(-10,10), intensity*0.3);
+    
+    let layerCount = 2 + floor(intensity*2);
+    for(let ly=0;ly<layerCount;ly++){
+      let lyOff=ly*20;
+      let amp=band.amp*(1+ly*0.3);
+      let baseAlpha=map(ly,0,layerCount,40,8);
+      let a=baseAlpha*intensity*stormBoost;
+      
       beginShape();
-      for(let x=0;x<=width;x+=4){
-        let y=yBase+sin(x*(band.freq*1.5+layer*0.003)+band.phase+layer)*band.amp*intensity*(1+layer*0.2);
-        y+=noise(x*0.008+layer,band.phase+frameCount2*0.001)*30*intensity;
-        let a=map(layer,0,3,25,5)*intensity*stormBoost;
-        fill(h+layer*15,80,70,a);
+      for(let x=0;x<=width;x+=3){
+        let yBase=band.y+lyOff+sin(fc*0.002)*8;
+        let y=yBase+sin(x*band.freq+band.ph)*amp*intensity;
+        y+=noise(x*0.004+ly*0.5,fc*0.002)*35*intensity;
+        y+=sin(x*0.002+fc*0.005)*15*stormBoost;
+        fill(h,65+ly*10,55+ly*8,a);
         vertex(x,y);
       }
       endShape();
     }
   }
+  
+  // bright curtain effect on strong storms
+  if(southBz && solarWind.bz<-2 && solarWind.speed>450){
+    for(let i=0;i<3;i++){
+      let cx=width*(0.3+i*0.2);
+      let alpha=constrain(map(solarWind.bz,-2,-5,10,35),10,35)*intensity;
+      let h=340+random(-10,10);
+      for(let y=height*0.1;y<height*0.6;y+=2){
+        let w=20+sin(y*0.02+fc*0.01)*15+random(-5,5);
+        let a=alpha*map(y,height*0.1,height*0.6,1,0.1);
+        fill(h,80,70,a);
+        rect(cx-w/2+sin(fc*0.008+i)*20,y,w,2);
+      }
+    }
+  }
 }
 
 function drawParticles(){
-  if(random()<map(solarWind.speed,300,800,0.05,0.2)){
-    if(particles.length<MAX_PARTICLES){
-      particles.push({
-        x:random(width),
-        y:height*0.3+random(-30,50),
-        vx:random(-0.3,0.3),
-        vy:random(0.5,2)*solarWind.speed/400,
-        life:100,
-        maxLife:100+random(50),
-        hue:solarWind.bz<-2?random(320,360):random(90,150),
-        size:random(1,3)
-      });
-    }
+  let spawnRate=map(solarWind.speed+density*30,300,800,0.02,0.15);
+  if(random()<spawnRate&&particles.length<MAX_P){
+    particles.push({
+      x:random(width),
+      y:height*0.15+random(-10,30),
+      vx:sin(solarWind.bz*0.5)*0.5+random(-0.3,0.3),
+      vy:random(0.5,2.5)*solarWind.speed/400,
+      life:100+random(40),
+      hue:solarWind.bz<-2?random(320,360):solarWind.speed>550?random(25,45):random(90,160),
+      sz:random(0.8,2.5)
+    });
   }
+  
   for(let i=particles.length-1;i>=0;i--){
     let p=particles[i];
-    p.x+=p.vx+sin(frameCount2*0.01+p.x*0.01)*0.5;
+    p.x+=p.vx+sin(fc*0.01+p.x*0.005)*0.3;
     p.y+=p.vy;
-    p.life-=0.5;
+    p.life-=0.4;
     if(p.life<=0||p.y>height){particles.splice(i,1);continue;}
-    let alpha=map(p.life,0,p.maxLife,0,60);
-    let sz=p.size*map(solarWind.density,1,20,0.8,2);
-    fill(p.hue,80,80,alpha);
+    let alpha=map(p.life,0,p.maxLife||140,0,50);
+    let sz=p.sz*map(solarWind.density,0.5,20,0.6,1.5);
+    fill(p.hue,75,85,alpha);
     circle(p.x,p.y,sz);
-    fill(p.hue,90,90,alpha*0.5);
-    circle(p.x,p.y,sz*2);
+    fill(p.hue,90,90,alpha*0.4);
+    circle(p.x,p.y,sz*2.5);
   }
 }
 
 function drawScanlines(){
   for(let y=0;y<height;y+=3){
-    stroke(0,0,0,8);
+    stroke(0,0,0,6);
     strokeWeight(1);
     line(0,y,width,y);
   }
   noStroke();
-  let flicker=random(100)>97?15:0;
-  fill(120,60,60+flicker,3);
+  let flicker=random(100)>98?20:0;
+  fill(120,50,50+flicker,2);
   rect(0,0,width,height);
 }
 
 function updateHUD(){
-  let bzColor=solarWind.bz<-2?'#f33':solarWind.bz<0?'#f80':'#0f8';
+  let bzColor=solarWind.bz<-3?'#f33':solarWind.bz<-1?'#f80':'#0f8';
   let stormLevel=solarWind.bz<-5?'EXTREME':solarWind.bz<-3?'STRONG':solarWind.bz<-1?'MODERATE':solarWind.bz<0?'WEAK':'QUIET';
+  let stormCol=stormLevel==='EXTREME'?'#f33':stormLevel==='STRONG'?'#f80':stormLevel==='MODERATE'?'#f80':'#0f8';
+  
   document.getElementById('hud').innerHTML=
-`<span style="color:#0f8">pr0xy // SOLAR WIND AURORA</span>
-<span style="color:#0a5">━━━━━━━━━━━━━━━━━━━━</span>
-  speed:  ${solarWind.speed.toFixed(1)} km/s
-  density: ${solarWind.density.toFixed(2)} p/cm³
-  Bz:     <span style="color:${bzColor}">${solarWind.bz.toFixed(2)} nT</span>
-  Bt:     ${solarWind.bt.toFixed(2)} nT
-  storm:  ${stormLevel}
-<span style="color:#0a5">━━━━━━━━━━━━━━━━━━━━</span>
-  particles: ${particles.length}/${MAX_PARTICLES}
-  fps: ${frameRate().toFixed(0)}
-  data: ${dataLoaded?'LIVE':'OFFLINE'}`;
+`<span style="color:#0f8;font-size:11px;letter-spacing:3px">pr0xy // SOLAR WIND AURORA</span>
+<span style="color:#075">━━━━━━━━━━━━━━━━━━━━━━━━</span>
+  speed:    <span style="color:${solarWind.speed>550?'#f80':'#0f8'}">${solarWind.speed.toFixed(1)} km/s</span>
+  density:  <span style="color:#0a5">${solarWind.density.toFixed(2)} p/cm³</span>
+  Bz:       <span style="color:${bzColor}">${solarWind.bz.toFixed(2)} nT</span>
+  Bt:       <span style="color:#0a5">${solarWind.bt.toFixed(2)} nT</span>
+  storm:    <span style="color:${stormCol}">${stormLevel}</span>
+<span style="color:#075">━━━━━━━━━━━━━━━━━━━━━━━━</span>
+  particles: ${particles.length}/${MAX_P} | fps: ${frameRate().toFixed(0)}
+  data: ${dataLoaded?'LIVE':'OFFLINE'}     ${new Date().toISOString().substr(11,8)} utc`;
 }
 
 async function refreshData(){
   try{
-    const pRes=await fetch(NOAA_PLASMA);
-    const pData=await pRes.json();
-    const mRes=await fetch(NOAA_MAG);
-    const mData=await mRes.json();
-    const latestP=pData[pData.length-1];
-    const latestM=mData[mData.length-1];
-    solarWind.speed=parseFloat(latestP[2])||solarWind.speed;
-    solarWind.density=parseFloat(latestP[3])||solarWind.density;
-    solarWind.bz=parseFloat(latestM[3])||solarWind.bz;
-    solarWind.bt=parseFloat(latestM[4])||solarWind.bt;
+    let [p,m]=await Promise.all([fetch(NOAA_PLASMA),fetch(NOAA_MAG)]);
+    let [pj,mj]=await Promise.all([p.json(),m.json()]);
+    let lp=pj[pj.length-1],lm=mj[mj.length-1];
+    solarWind.density=parseFloat(lp[1])||solarWind.density;
+    solarWind.speed=parseFloat(lp[2])||solarWind.speed;
+    solarWind.bz=parseFloat(lm[3])||solarWind.bz;
+    solarWind.bt=parseFloat(lm[6])||solarWind.bt;
   }catch(e){}
 }
 
@@ -208,84 +244,70 @@ function toggleAudio(){
     masterGain=audioCtx.createGain();
     masterGain.gain.value=0;
     masterGain.connect(audioCtx.destination);
-    drone1=audioCtx.createOscillator();
-    drone1.type='sawtooth';
-    drone1.frequency.value=55;
-    let d1g=audioCtx.createGain();
-    d1g.gain.value=0.15;
-    drone1.connect(d1g);
-    d1g.connect(masterGain);
-    drone1.start();
-    drone2=audioCtx.createOscillator();
-    drone2.type='sine';
-    drone2.frequency.value=73.5;
-    let d2g=audioCtx.createGain();
-    d2g.gain.value=0.12;
-    drone2.connect(d2g);
-    d2g.connect(masterGain);
-    drone2.start();
-    drone3=audioCtx.createOscillator();
-    drone3.type='triangle';
-    drone3.frequency.value=110;
-    let d3g=audioCtx.createGain();
-    d3g.gain.value=0.08;
-    drone3.connect(d3g);
-    d3g.connect(masterGain);
-    drone3.start();
-    let bufferSize=audioCtx.sampleRate*2;
-    let noiseBuffer=audioCtx.createBuffer(1,bufferSize,audioCtx.sampleRate);
-    let data=noiseBuffer.getChannelData(0);
-    for(let i=0;i<bufferSize;i++)data[i]=Math.random()*2-1;
-    noiseSrc=audioCtx.createBufferSource();
-    noiseSrc.buffer=noiseBuffer;
-    noiseSrc.loop=true;
-    noiseFilter=audioCtx.createBiquadFilter();
-    noiseFilter.type='bandpass';
-    noiseFilter.frequency.value=400;
-    noiseFilter.Q.value=2;
-    let ng=audioCtx.createGain();
-    ng.gain.value=0.06;
-    noiseSrc.connect(noiseFilter);
-    noiseFilter.connect(ng);
-    ng.connect(masterGain);
-    noiseSrc.start();
-    lfo1=audioCtx.createOscillator();
-    lfo1.type='sine';
-    lfo1.frequency.value=0.15;
-    let lfo1g=audioCtx.createGain();
-    lfo1g.gain.value=0.12;
-    lfo1.connect(lfo1g);
-    lfo1g.connect(d1g.gain);
-    lfo1.start();
-    lfo2=audioCtx.createOscillator();
-    lfo2.type='sine';
-    lfo2.frequency.value=0.08;
-    let lfo2g=audioCtx.createGain();
-    lfo2g.gain.value=0.08;
-    lfo2.connect(lfo2g);
-    lfo2g.connect(noiseFilter.frequency);
-    lfo2.start();
-    masterGain.gain.linearRampToValueAtTime(0.6,audioCtx.currentTime+2);
+    
+    drone1=audioCtx.createOscillator();drone1.type='sawtooth';drone1.frequency.value=55;
+    let d1=audioCtx.createGain();d1.gain.value=0.12;drone1.connect(d1);d1.connect(masterGain);drone1.start();
+    
+    drone2=audioCtx.createOscillator();drone2.type='sine';drone2.frequency.value=73.5;
+    let d2=audioCtx.createGain();d2.gain.value=0.1;drone2.connect(d2);d2.connect(masterGain);drone2.start();
+    
+    drone3=audioCtx.createOscillator();drone3.type='triangle';drone3.frequency.value=110;
+    let d3=audioCtx.createGain();d3.gain.value=0.07;drone3.connect(d3);d3.connect(masterGain);drone3.start();
+    
+    let bs=audioCtx.sampleRate*2;
+    let nb=audioCtx.createBuffer(1,bs,audioCtx.sampleRate);
+    let dd=nb.getChannelData(0);
+    for(let i=0;i<bs;i++)dd[i]=Math.random()*2-1;
+    sunSrc=audioCtx.createBufferSource();sunSrc.buffer=nb;sunSrc.loop=true;
+    sunFilter=audioCtx.createBiquadFilter();sunFilter.type='bandpass';sunFilter.frequency.value=400;sunFilter.Q.value=2;
+    let ng=audioCtx.createGain();ng.gain.value=0.05;
+    sunSrc.connect(sunFilter);sunFilter.connect(ng);ng.connect(masterGain);sunSrc.start();
+    
+    delay=audioCtx.createDelay(1.0);delay.delayTime.value=0.35;
+    feedback=audioCtx.createGain();feedback.gain.value=0.45;
+    masterGain.connect(delay);delay.connect(feedback);feedback.connect(delay);
+    let dg=audioCtx.createGain();dg.gain.value=0.3;delay.connect(dg);dg.connect(audioCtx.destination);
+    
+    lfo1=audioCtx.createOscillator();lfo1.type='sine';lfo1.frequency.value=0.12;
+    let l1=audioCtx.createGain();l1.gain.value=0.1;lfo1.connect(l1);l1.connect(d1.gain);lfo1.start();
+    
+    lfo2=audioCtx.createOscillator();lfo2.type='sine';lfo2.frequency.value=0.07;
+    let l2=audioCtx.createGain();l2.gain.value=0.06;lfo2.connect(l2);l2.connect(sunFilter.frequency);lfo2.start();
+    
+    lfo3=audioCtx.createOscillator();lfo3.type='sine';lfo3.frequency.value=0.03;
+    let l3g=audioCtx.createGain();l3g.gain.value=40;lfo3.connect(l3g);l3g.connect(drone1.frequency);lfo3.start();
+    
+    masterGain.gain.linearRampToValueAtTime(0.7,audioCtx.currentTime+3);
     audioEnabled=true;
     btn.textContent='disable sound';
-    btn.style.borderColor='#f80';
-    btn.style.color='#f80';
+    btn.classList.add('active');
   }else{
     if(masterGain&&audioCtx)masterGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+1);
-    setTimeout(()=>{audioEnabled=false;if(audioCtx){audioCtx.close();audioCtx=null;}btn.textContent='enable sound';btn.style.borderColor='#0f8';btn.style.color='#0f8';},1100);
+    setTimeout(()=>{
+      audioEnabled=false;
+      if(audioCtx){audioCtx.close();audioCtx=null;}
+      btn.textContent='enable sound';
+      btn.classList.remove('active');
+    },1200);
   }
 }
 
-function updateAudioParams(){
+function updateAudio(){
   if(!audioEnabled||!audioCtx)return;
   let t=audioCtx.currentTime;
-  if(drone1)drone1.frequency.linearRampToValueAtTime(40+solarWind.speed*0.02,t+0.5);
-  if(drone2)drone2.frequency.linearRampToValueAtTime(55+solarWind.bz*2,t+0.5);
-  if(drone3)drone3.frequency.linearRampToValueAtTime(80+solarWind.density*3,t+0.5);
-  if(noiseFilter)noiseFilter.frequency.linearRampToValueAtTime(200+constrain(solarWind.bz+3,0,5)*100,t+0.5);
+  if(drone1)drone1.frequency.linearRampToValueAtTime(40+solarWind.speed*0.025,t+0.5);
+  if(drone2)drone2.frequency.linearRampToValueAtTime(55+solarWind.bz*3,t+0.5);
+  if(drone3)drone3.frequency.linearRampToValueAtTime(80+solarWind.density*4,t+0.5);
+  if(sunFilter)sunFilter.frequency.linearRampToValueAtTime(200+constrain(solarWind.bz+3,0,5)*120,t+0.5);
 }
 
-function windowResized(){resizeCanvas(windowWidth,windowHeight);}
+function windowResized(){
+  resizeCanvas(windowWidth,windowHeight);
+  stars.splice(0);
+  for(let i=0;i<400;i++) stars.push({x:random(width),y:random(height*0.8),s:random(0.3,2.2),b:random(30,100),ts:random(0.008,0.06),ph:random(TWO_PI)});
+  auroraBands.splice(0);
+  for(let i=0;i<6;i++) auroraBands.push({y:height*(0.15+i*0.09),ph:random(TWO_PI),freq:random(0.003,0.012),amp:random(20,60),spd:random(0.001,0.006),hue:80+i*15});
+}
 </script>
 </body>
 </html>
