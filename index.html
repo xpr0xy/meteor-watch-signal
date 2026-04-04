@@ -6,18 +6,26 @@
 <title>pr0xy // solar wind aurora</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#030308}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
 canvas{display:block;width:100%!important;height:100%!important}
-#hud{position:fixed;top:10px;left:10px;font-family:'Courier New',monospace;font-size:12px;color:#0f8;z-index:10;pointer-events:none;line-height:1.55;background:rgba(0,0,0,0.65);padding:10px 14px;border:1px solid rgba(0,255,128,0.15);border-radius:2px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-#sound-btn{position:fixed;bottom:12px;right:12px;z-index:20;background:rgba(0,255,128,0.06);border:1px solid rgba(0,255,128,0.35);color:#0f8;padding:7px 14px;font-family:'Courier New',monospace;font-size:11px;cursor:pointer;border-radius:2px;text-transform:uppercase;letter-spacing:2px;-webkit-backdrop-filter:blur(4px)}
+#hud{position:fixed;top:10px;left:10px;font-size:11px;color:#0f8;z-index:10;pointer-events:none;line-height:1.6;background:rgba(0,0,0,0.78);padding:8px 12px;border:1px solid rgba(0,255,128,0.2);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);max-width:85vw;box-shadow:0 0 20px rgba(0,255,128,0.08),inset 0 0 20px rgba(0,255,128,0.03)}
+#hud .label{color:#075;letter-spacing:2px}
+#hud .title{color:#0f8;font-size:10px;letter-spacing:3px;margin-bottom:5px;text-shadow:0 0 8px rgba(0,255,128,0.5)}
+#hud .divider{color:#053;border-bottom:1px solid rgba(0,255,128,0.1);padding-bottom:3px;margin:3px 0}
+#hud .stat{color:#0a5}
+#sound-btn{position:fixed;bottom:12px;right:12px;z-index:20;background:rgba(0,255,128,0.06);border:1px solid rgba(0,255,128,0.35);color:#0f8;padding:7px 14px;font-size:10px;cursor:pointer;text-transform:uppercase;letter-spacing:2px}
 #sound-btn:hover{background:rgba(0,255,128,0.15);border-color:#0f8}
 #sound-btn.active{color:#f80;border-color:rgba(255,136,0,0.4)}
-#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-family:'Courier New',monospace;font-size:13px;color:#0f8;z-index:100;text-align:center;text-shadow:0 0 10px rgba(0,255,128,0.5)}
+#loading{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:13px;color:#0f8;z-index:100;text-align:center;text-shadow:0 0 10px rgba(0,255,128,0.5);white-space:pre;line-height:1.3}
+#loading .asciiline{font-size:9px;line-height:1.2;letter-spacing:1px}
+#loading .subtitle{font-size:10px;letter-spacing:2px;margin:6px 0;opacity:0.7}
+#loading .boot-text{font-size:9px;margin-top:12px;opacity:0.5;animation:blink 1.2s infinite}
+@keyframes blink{0%,50%{opacity:0.5}100%{opacity:0.1}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
 <body>
-<div id="loading">connecting to noaa swpc feed...</div>
+<div id="loading"></div>
 <div id="hud"></div>
 <button id="sound-btn">enable sound</button>
 <script>
@@ -31,7 +39,10 @@ let audioCtx=null,audioEnabled=false;
 let masterGain,drone1,drone2,drone3,sunSrc,sunFilter,delay,feedback,lfo1,lfo2,lfo3;
 let fc=0;
 let dataLoaded=false;
-const MAX_P=300;
+let intensity=1;
+const MAX_P=350;
+let scrollX=0;
+const KJ_SCROLL='pr0xy // solar wind aurora // real-time NOAA space weather data // bz: {bz} nT // speed: {spd} km/s // density: {den} p/cm3 // storm index: {si} // noaa swpc feed live // magnetometer active // plasma data active // ';
 const hudEl=document.getElementById('hud');
 const btnEl=document.getElementById('sound-btn');
 const loadEl=document.getElementById('loading');
@@ -57,23 +68,44 @@ async function loadSolarData(){
   }
 }
 
-// HUD update helper
+showLoadingScreen();
+function showLoadingScreen(){
+  var art = [
+    '  SSSSS OOO   L      AAAAA  RRRR    W   W  III  N   N  DDDD',
+    '  S     O  O  L     A   A  R   R   W W W   I   NN  N  D   D',
+    '  SSS   O  O  L     AAAAA  RRRR    W W W   I   N N N  D   D',
+    '    S   O  O  L     A   A  R  R    W   W   I   N  NN  D   D',
+    '  SSS   OOO   LLLL  A   A  R   R    W W   III  N   N  DDDD',
+    '',
+    '  AAAAA U   U RRRR  OOO  RRRR   AAAAA',
+    '  A   A U   U R   R O   O R   R  A   A',
+    '  AAAAA U   U RRRR  O   O RRRR   AAAAA',
+    '  A   A U   U R  R  O   O R  R   A   A',
+    '  A   A  UUU  R   R  OOO  R   R  A   A',
+  ];
+
+  loadEl.innerHTML = art.map(function(l){ return '<div class="asciiline">'+l+'</div>'; }).join('')+
+    '<div class="subtitle">&#9608; pr0xy // SOLAR WIND VISUALIZATION // 2026 &#9608;</div>'+
+    '<div class="boot-text">connecting to noaa swpc feed...</div>';
+}
+
 function updateHUDHTML(){
   let bzc=solarWind.bz<-3?'#f33':solarWind.bz<-1?'#f80':'#0f8';
   let sc=solarWind.bz<-5?'EXTREME':solarWind.bz<-3?'STRONG':solarWind.bz<-1?'MODERATE':solarWind.bz<0?'WEAK':'QUIET';
   let scc=sc==='EXTREME'||sc==='STRONG'?'#f33':sc==='MODERATE'?'#f80':sc==='WEAK'?'#fc0':'#0f8';
   let spdC=solarWind.speed>550?'#f80':'#0f8';
+  let denC=solarWind.density>10?'#f80':solarWind.density>5?'#fc0':'#0a5';
   hudEl.innerHTML=
-`<div style="color:#0f8;font-size:12px;letter-spacing:3px;margin-bottom:6px">pr0xy // SOLAR WIND AURORA</div>
-<div style="color:#075;margin-bottom:4px">━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-<div>speed: <span style="color:${spdC}">${solarWind.speed.toFixed(1)} km/s</span></div>
-<div>dens: <span style="color:#0a5">${solarWind.density.toFixed(2)} p/cm³</span></div>
-<div>Bz: &nbsp;<span style="color:${bzc}">${solarWind.bz.toFixed(2)} nT</span></div>
-<div>Bt: &nbsp;<span style="color:#0a5">${solarWind.bt.toFixed(2)} nT</span></div>
-<div>storm: <span style="color:${scc}">${sc}</span></div>
-<div style="color:#075;margin:4px 0">━━━━━━━━━━━━━━━━━━━━━━━━━━</div>
-<div style="font-size:10px;color:#085">particles: ${particles.length} | fps: ${floor(frameRate())} | ${dataLoaded?'LIVE':'OFFLINE'}</div>
-<div style="font-size:9px;color:#064;margin-top:2px">${new Date().toISOString().substr(11,8)} UTC</div>`;
+`<div class="title">SOLAR WIND AURORA</div>
+<div class="divider"></div>
+<div>speed:  <span style="color:${spdC}">${solarWind.speed.toFixed(1)} km/s</span></div>
+<div>dens:   <span style="color:${denC}">${solarWind.density.toFixed(2)} p/cm3</span></div>
+<div>Bz:     <span style="color:${bzc}">${solarWind.bz.toFixed(2)} nT</span></div>
+<div>Bt:     <span style="color:#0a5">${solarWind.bt.toFixed(2)} nT</span></div>
+<div>storm:  <span style="color:${scc}">${sc}</span></div>
+<div class="divider"></div>
+<div style="font-size:9px;color:#085">particles: ${particles.length} | fps: ${floor(frameRate())} | ${dataLoaded?'LIVE':'FALLBACK'}</div>
+<div style="font-size:8px;color:#064;margin-top:3px;letter-spacing:1px">${new Date().toISOString().substr(11,8)} UTC</div>`;
 }
 
 function setup(){
@@ -81,37 +113,65 @@ function setup(){
   cnv.parent(document.body);
   colorMode(HSB,360,100,100,100);
   frameRate(60);
-  for(let i=0;i<500;i++){
-    stars.push({x:random(width),y:random(height),s:random(0.3,2),b:random(30,100),ts:random(0.01,0.05),ph:random(TWO_PI)});
+  textAlign(LEFT,TOP);
+  textFont('Courier New');
+  for(let i=0;i<600;i++){
+    stars.push({x:random(width),y:random(height),s:random(0.3,2.2),b:random(30,100),ts:random(0.008,0.06),ph:random(TWO_PI)});
   }
-  for(let i=0;i<7;i++){
+  for(let i=0;i<8;i++){
     auroraBands.push({
-      y:height*(0.18+i*0.07),
+      y:height*(0.15+i*0.08),
       phase:random(TWO_PI),
-      freq:random(0.004,0.014),
-      amp:random(25,55),
-      speed:random(0.002,0.007),
-      baseHue:random(100,150)
+      freq:random(0.003,0.016),
+      amp:random(20,65),
+      speed:random(0.0015,0.008),
+      baseHue:random(95,160)
     });
   }
   loadSolarData();
   btnEl.addEventListener('click',toggleAudio);
+  window.addEventListener('resize', handleResize);
+}
+
+function handleResize(){
+  resizeCanvas(windowWidth,windowHeight);
+  stars.splice(0);
+  for(let i=0;i<600;i++)stars.push({x:random(width),y:random(height),s:random(0.3,2.2),b:random(30,100),ts:random(0.008,0.06),ph:random(TWO_PI)});
+  auroraBands.splice(0);
+  for(let i=0;i<8;i++)auroraBands.push({y:height*(0.15+i*0.08),phase:random(TWO_PI),freq:random(0.003,0.016),amp:random(20,65),speed:random(0.0015,0.008),baseHue:random(95,160)});
 }
 
 function draw(){
   fc++;
-  background(230,60,1.5);
+  background(0,0,2);
+
+  intensity=constrain(map(solarWind.speed,300,800,0.5,1.0),0.3,1.5);
   
-  // subtle atmospheric gradient
-  for(let y=height*0.1;y<height*0.65;y+=2){
-    let alpha=map(y,height*0.1,height*0.65,8,0);
-    fill(140+sin(fc*0.003)*15,40,20,alpha);
-    rect(0,y,width,2);
+  // deep atmospheric haze
+  for(let y=height*0.05;y<height*0.9;y+=3){
+    let ny=map(y,height*0.05,height*0.9,1,0);
+    let alpha=8*ny*intensity;
+    let hShift=sin(y*0.002+fc*0.001)*25;
+    fill(135+hShift,45+abs(solarWind.bz)*4,15,alpha);
+    noStroke();
+    rect(0,y,width,3);
+  }
+
+  // earth curvature glow at horizon
+  let earthCurveY=height*0.92;
+  for(let x=0;x<width;x+=1){
+    let curve=earthCurveY+sin(x*0.005+0.5)*20+cos(x*0.009)*12;
+    let glowAlpha=5+sin(x*0.02+fc*0.01)*2;
+    let earthHue=solarWind.bz<0?lerp(120,5,constrain(abs(solarWind.bz)/5,0,0.5)):120;
+    fill(earthHue,60,25,glowAlpha*intensity);
+    noStroke();
+    rect(x,curve,1,height-curve);
   }
   
   drawStars();
   drawAurora();
   drawParticles();
+  drawKeygenText();
   drawScanlines();
   updateHUDHTML();
   if(audioEnabled)updateAudio();
@@ -120,113 +180,189 @@ function draw(){
 
 function drawStars(){
   for(let s of stars){
-    let bright=s.b+sin(fc*s.ts+s.ph)*20;
-    fill(0,0,max(bright,0),75);
-    circle(s.x,s.y,s.s);
+    let bright=s.b+sin(fc*s.ts+s.ph)*25;
+    let twinkle=s.b+sin(fc*s.ts*1.5+s.ph*2)*30;
+    let h=solarWind.bz<-3?lerp(0,20,twinkle/100):0;
+    fill(h,solarWind.bz<-3?40:0,max(twinkle,10),70);
+    noStroke();
+    circle(s.x,s.y,s.s*(1+sin(fc*0.01+s.ph)*0.3));
   }
 }
 
 function drawAurora(){
-  let intensity=constrain(map(solarWind.speed,300,800,0.3,1.0),0.2,1.3);
-  let stormBoost=constrain(map(solarWind.bz,-5,0,2.0,0.3),0.3,2.0);
+  let stormBoost=constrain(map(solarWind.bz,-5,0,2.5,0.5),0.5,2.5);
   let isStorm=solarWind.bz<-2&&solarWind.speed>450;
   
-  // draw with additive blending for glow
+  // bloom glow via canvas shadow
+  drawingContext.shadowBlur=40;
+  drawingContext.shadowColor='rgba(0,255,128,0.4)';
   blendMode(ADD);
   
   for(let bi=0;bi<auroraBands.length;bi++){
     let band=auroraBands[bi];
-    band.phase+=band.speed*solarWind.speed/400;
-    let yBase=band.y+sin(fc*0.002)*10;
+    band.phase+=band.speed*(solarWind.speed/400);
+    let yBase=band.y+sin(fc*0.0015+bi*0.5)*15;
     
     let h=band.baseHue;
-    if(solarWind.bz<0)h=lerp(h,340,constrain(abs(solarWind.bz)/6,0,0.6));
-    if(solarWind.speed>550)h=lerp(h,30,intensity*0.4);
+    if(solarWind.bz<0)h=lerp(h,340,constrain(abs(solarWind.bz)/4,0,0.8));
+    if(solarWind.speed>550)h=lerp(h,25,intensity*0.7);
+    if(isStorm)h=lerp(h,280,constrain(abs(solarWind.bz+2)/5,0,0.3));
     
-    for(let layer=0;layer<4;layer++){
-      let ly=layer*18;
-      let a=map(layer,0,4,90,20)*intensity*stormBoost;
-      let bandAmp=band.amp*(1+layer*0.3);
-      let br=lerp(70,100,1-layer/4);
-      let sat=lerp(80,60,layer/4);
-      
+    // bloom layers - wide soft glow
+    for(let layer=0;layer<6;layer++){
+      let ly=layer*10;
+      let a=map(layer,0,6,50,5)*intensity*stormBoost;
+      let bandAmp=band.amp*(1+layer*0.35);
+      let br=lerp(60,100,1-layer/6);
+      let sat=lerp(90,55,layer/6);
+      let sw=lerp(22,2,6-layer);
+      stroke(h,sat,br,a);
+      strokeWeight(sw);
+      noFill();
       beginShape();
-      vertex(0,height); // start bottom-left
-      for(let x=0;x<=width;x+=3){
+      for(let x=0;x<=width;x+=5){
         let y=yBase+ly+sin(x*band.freq+band.phase)*bandAmp*intensity;
-        y+=noise(x*0.005+layer,fc*0.003)*35*intensity;
-        y+=sin(x*0.003+fc*0.004+layer)*15*stormBoost;
-        fill(h,sat,br,a);
+        y+=noise(x*0.003+bi,fc*0.0015)*45*intensity;
+        y+=sin(x*0.0015+fc*0.0025+bi)*20*stormBoost;
+        y+=noise(x*0.008+fc*0.005)*12;
         vertex(x,y);
       }
-      vertex(width,height); // close at bottom-right
-      endShape(CLOSE);
+      endShape();
     }
     
-    // vertical rays during storms
-    if(isStorm&&bi<3){
-      for(let x=0;x<width;x+=20){
-        let yTop=yBase+sin(x*band.freq+band.phase)*band.amp*intensity;
-        let rayH=random(40,100)*intensity*stormBoost;
-        let ra=random(20,45)*intensity;
+    // bright core line per band
+    drawingContext.shadowBlur=12;
+    stroke(h,85,100,80*intensity*stormBoost);
+    strokeWeight(1.8);
+    noFill();
+    beginShape();
+    for(let x=0;x<=width;x+=2){
+      let y=yBase+sin(x*band.freq+band.phase)*band.amp*intensity;
+      y+=noise(x*0.005+bi,fc*0.002)*28*intensity;
+      vertex(x,y);
+    }
+    endShape();
+    drawingContext.shadowBlur=40;
+    
+    // vertical aurora rays during storms
+    if(isStorm&&bi<5){
+      drawingContext.shadowBlur=10;
+      let rayCount=floor(width/8);
+      for(let ri=0;ri<rayCount;ri++){
+        let rx=ri*8+sin(fc*0.02+ri)*3;
+        let yTop=yBase+sin(rx*band.freq+band.phase)*band.amp*intensity+noise(rx*0.004,fc*0.0015)*30;
+        let rayH=random(40,120)*intensity*stormBoost;
+        let ra=random(20,55)*intensity;
+        let flicker=0.5+sin(fc*0.08+rx*0.05)*0.5;
         for(let dy=0;dy<rayH;dy+=2){
-          let ra2=ra*map(dy,0,rayH,1,0);
-          if(ra2<3)continue;
-          fill(h,85,90,ra2);
-          rect(x+sin(fc*0.008+x*0.02)*8,yTop+dy,2,2);
+          let ra2=ra*map(dy,0,rayH,1,0)*flicker;
+          if(ra2<4)continue;
+          fill(h,80,95,ra2);
+          noStroke();
+          let sway=sin(fc*0.015+rx*0.04+dy*0.05)*4;
+          rect(rx+sway,yTop-dy,2.5,2);
         }
       }
+      drawingContext.shadowBlur=40;
     }
   }
   
   blendMode(BLEND);
+  drawingContext.shadowBlur=0;
+  strokeWeight(1);
+}
+
+function drawKeygenText(){
+  // bottom scroller 
+  let msg=KJ_SCROLL.replace('{bz}',solarWind.bz.toFixed(2))
+    .replace('{spd}',solarWind.speed.toFixed(0))
+    .replace('{den}',solarWind.density.toFixed(2))
+    .replace('{si}',solarWind.bz<-3?'ACTIVE':'NOMINAL');
+  textSize(10);
+  let tw=textWidth(msg);
+  scrollX-=0.7;
+  if(scrollX<-tw)scrollX+=tw;
+  
+  fill(0,255,128,45);
+  noStroke();
+  for(let i=-2;i<ceil(width/tw)+2;i++){
+    text(msg,scrollX+i*tw,height-16);
+  }
+  
+  // decorative corner brackets
+  stroke(0,255,128,20);
+  strokeWeight(1);
+  let bm=8,bl=25;
+  // bottom-left
+  line(bm,height-bm-bl,bm,height-bm);
+  line(bm,height-bm,bm+bl,height-bm);
+  // bottom-right
+  line(width-bm,height-bm-bl,width-bm,height-bm);
+  line(width-bm-bl,height-bm,width-bm,height-bm);
+  // top-left (around HUD area)
+  let hh=hudEl.offsetHeight+20;
+  line(hudEl.offsetWidth+15,3,hudEl.offsetWidth+15,hh);
+  line(hudEl.offsetWidth+15,3,hudEl.offsetWidth+35,3);
+  // top-right
+  line(width-15,3,width-15,hh);
+  line(width-15,3,width-35,3);
+  noStroke();
 }
 
 function drawParticles(){
-  let spawnRate=map(solarWind.speed+solarWind.density*30,300,900,0.03,0.18);
+  let spawnRate=map(solarWind.speed+solarWind.density*40,300,1000,0.04,0.2);
   if(random()<spawnRate&&particles.length<MAX_P){
+    let ph=solarWind.bz<-2?random(320,360):solarWind.speed>550?random(20,50):random(85,165);
     particles.push({
-      x:random(width),
-      y:height*0.12+random(-5,25),
-      vx:sin(solarWind.bz)*0.3+random(-0.2,0.2),
-      vy:random(0.5,2)*solarWind.speed/400,
-      life:120+random(60),
-      hue:solarWind.bz<-2?random(320,360):solarWind.speed>550?random(20,50):random(90,160),
-      sz:random(0.8,2.5)
+      x:random(width*0.1,width*0.9),
+      y:height*0.1+random(-10,30),
+      vx:solarWind.bz*0.15+random(-0.3,0.3),
+      vy:random(0.4,1.8)*solarWind.speed/400,
+      life:100+random(80),
+      hue:ph,
+      sz:random(0.8,2.8)
     });
   }
   
   for(let i=particles.length-1;i>=0;i--){
     let p=particles[i];
-    p.x+=p.vx+sin(fc*0.008+p.x*0.005)*0.4;
+    p.x+=p.vx+sin(fc*0.006+p.x*0.004)*0.5+cos(fc*0.003+p.y*0.003)*0.3;
     p.y+=p.vy;
-    p.life-=0.35;
-    if(p.life<=0||p.y>height){particles.splice(i,1);continue;}
+    p.life-=0.4;
+    if(p.life<=0||p.y>height||p.x<-20||p.x>width+20){particles.splice(i,1);continue;}
     let ml=p.life||180;
-    let alpha=map(p.life,0,ml,0,55);
-    let sz=p.sz*map(solarWind.density,0.5,20,0.5,1.2);
+    let alpha=map(p.life,0,ml,0,60);
+    let sz=p.sz*map(solarWind.density,0.5,20,0.5,1.3);
     // outer glow
-    fill(p.hue,80,85,alpha*0.35);
-    circle(p.x,p.y,sz*3);
+    fill(p.hue,75,85,alpha*0.25);
+    noStroke();
+    circle(p.x,p.y,sz*4);
     // core
-    fill(p.hue,70,85,alpha);
+    fill(p.hue,65,95,alpha);
     circle(p.x,p.y,sz);
   }
 }
 
 function drawScanlines(){
   // CRT scanlines
-  for(let y=0;y<height;y+=3){
-    stroke(0,0,0,5);
-    strokeWeight(1);
-    line(0,y,width,y);
-  }
   noStroke();
-  // occasional flicker
-  if(random(100)>98){
-    fill(0,0,100,3);
-    rect(0,random(height),width,random(2,8));
+  for(let y=0;y<height;y+=3){
+    fill(0,0,0,4);
+    rect(0,y,width,2);
   }
+  // occasional horizontal glitch
+  if(random(100)>96){
+    fill(0,0,100,2+random(4));
+    rect(0,random(height),width,random(1,6));
+  }
+  // vignette
+  let vigSize=max(width,height)*1.2;
+  drawingContext.shadowBlur=vigSize*0.4;
+  drawingContext.shadowColor='rgba(0,0,0,0.6)';
+  stroke(0,0,0,0);
+  strokeWeight(1);
+  rect(width/2,height/2,0,0);
+  drawingContext.shadowBlur=0;
 }
 
 async function refreshData(){
@@ -301,14 +437,6 @@ function updateAudio(){
   if(drone2)drone2.frequency.linearRampToValueAtTime(55+solarWind.bz*3,t+0.5);
   if(drone3)drone3.frequency.linearRampToValueAtTime(80+solarWind.density*4,t+0.5);
   if(sunFilter)sunFilter.frequency.linearRampToValueAtTime(200+constrain(solarWind.bz+3,0,5)*100,t+0.5);
-}
-
-function windowResized(){
-  resizeCanvas(windowWidth,windowHeight);
-  stars.splice(0);
-  for(let i=0;i<500;i++)stars.push({x:random(width),y:random(height),s:random(0.3,2),b:random(30,100),ts:random(0.01,0.05),ph:random(TWO_PI)});
-  auroraBands.splice(0);
-  for(let i=0;i<7;i++)auroraBands.push({y:height*(0.18+i*0.07),phase:random(TWO_PI),freq:random(0.004,0.014),amp:random(25,55),speed:random(0.002,0.007),baseHue:random(100,150)});
 }
 </script>
 </body>
