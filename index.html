@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>pr0xy // solar wind aurora</title>
+<meta name="description" content="Real-time solar wind aurora visualization — NOAA space weather data made visible and audible">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Courier New',monospace}
@@ -22,19 +23,44 @@ canvas{display:block;width:100%!important;height:100%!important}
   box-shadow:0 0 20px rgba(0,255,128,0.08),inset 0 0 20px rgba(0,255,128,0.03)}
 #hud .title{color:#0f8;font-size:10px;letter-spacing:3px;margin-bottom:5px;text-shadow:0 0 8px rgba(0,255,128,0.5)}
 #hud .divider{color:#053;border-bottom:1px solid rgba(0,255,128,0.1);padding-bottom:3px;margin:3px 0}
-#sound-btn{position:fixed;bottom:12px;right:12px;z-index:20;background:rgba(0,255,128,0.06);
+#sound-btn,#screenshot-btn{position:fixed;bottom:12px;z-index:20;background:rgba(0,255,128,0.06);
   border:1px solid rgba(0,255,128,0.35);color:#0f8;padding:7px 14px;font-size:10px;cursor:pointer;
-  text-transform:uppercase;letter-spacing:2px}
-#sound-btn:hover{background:rgba(0,255,128,0.15);border-color:#0f8}
+  text-transform:uppercase;letter-spacing:2px;font-family:'Courier New',monospace}
+#sound-btn:hover,#screenshot-btn:hover{background:rgba(0,255,128,0.15);border-color:#0f8}
+#sound-btn{right:12px}
 #sound-btn.active{color:#f80;border-color:rgba(255,136,0,0.4)}
+#screenshot-btn{right:160px}
+#storm-alert{position:fixed;top:10px;right:10px;z-index:10;pointer-events:none;font-size:11px;
+  font-family:'Courier New',monospace;color:#f33;padding:8px 12px;background:rgba(0,0,0,0.85);
+  border:1px solid rgba(255,50,50,0.4);letter-spacing:2px;text-align:right;opacity:0;
+  transition:opacity 0.8s;animation:none;max-width:80vw;min-width:140px}
+#storm-alert.visible{opacity:1;animation:pulse-alert 1.5s ease-in-out infinite}
+#storm-alert.warn{opacity:1;animation:none;color:#f80;border-color:rgba(255,136,0,0.4)}
+@keyframes pulse-alert{0%,100%{opacity:1;box-shadow:0 0 15px rgba(255,50,50,0.3)}
+  50%{opacity:0.6;box-shadow:0 0 30px rgba(255,50,50,0.6)}}
 #loading{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:#000;z-index:100;text-align:center}
 #loading .asciiline{font-size:7px;line-height:1.1;letter-spacing:1px;color:#0f8;white-space:pre;text-shadow:0 0 6px rgba(0,255,128,0.4)}
 #loading .subtitle{color:#0f8;font-size:10px;letter-spacing:2px;margin:10px 0 8px;opacity:0.7}
 #loading .boot-text{color:#0f8;font-size:9px;opacity:0.5;animation:blink 1.2s infinite}
 @keyframes blink{0%,50%{opacity:0.5}100%{opacity:0.1}}
-/* flicker glitch overlay */
 #glitch{position:fixed;inset:0;z-index:7;pointer-events:none;opacity:0;transition:opacity 0.05s}
+#bz-timeline{position:fixed;bottom:38px;left:10px;z-index:10;pointer-events:none;
+  background:rgba(0,0,0,0.6);border:1px solid rgba(0,255,128,0.15);padding:4px 6px;
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#bz-timeline canvas{display:block}
+/* flash overlay for screenshot + storm alerts */
+#flash{position:fixed;inset:0;z-index:50;pointer-events:none;background:rgba(255,255,255,0);
+  transition:background 0.1s}
+#flash.flash{background:rgba(255,255,255,0.7)}
+@media(max-width:600px){
+  #hud{font-size:10px;padding:6px 8px;top:8px;left:8px}
+  #sound-btn,#screenshot-btn{font-size:9px;padding:6px 10px;bottom:10px}
+  #screenshot-btn{right:auto;left:10px}
+  #sound-btn{right:10px}
+  #storm-alert{font-size:9px;top:8px;right:8px;padding:6px 8px}
+  #bz-timeline{bottom:34px;left:8px}
+}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
 </head>
@@ -46,11 +72,16 @@ canvas{display:block;width:100%!important;height:100%!important}
 <div id="scanlines"></div>
 <div id="vignette"></div>
 <div id="glitch"></div>
+<div id="flash"></div>
 <div id="hud"></div>
+<div id="storm-alert"></div>
+<div id="bz-timeline"><canvas id="tl-cnv" width="180" height="40"></canvas></div>
+<button id="screenshot-btn" title="Save screenshot">photo</button>
 <button id="sound-btn">enable sound</button>
 <script>
 const NOAA_PLASMA='https://services.swpc.noaa.gov/products/solar-wind/plasma-2-hour.json';
 const NOAA_MAG='https://services.swpc.noaa.gov/products/solar-wind/mag-2-hour.json';
+const NOAA_KPI='https://services.swpc.noaa.gov/products/geospace/geo-magnetometer.json';
 let solarWind={speed:400,density:5,bz:0.5,bt:3};
 let particles=[];
 let auroraBands=[];
@@ -62,13 +93,19 @@ let dataLoaded=false;
 let intensity=1;
 const MAX_P=250;
 let scrollX=0;
-const KJ_SCROLL='pr0xy // solar wind aurora // real-time NOAA space weather data // bz: {bz} nT // speed: {spd} km/s // density: {den} p/cm3 // storm index: {si} // noaa swpc feed live // magnetometer active // plasma data active // ';
+let bzHistory=[]; // last 24h of Bz values for timeline
+const KJ_SCROLL='\u2588\u2593 pr0xy // solar wind aurora // real-time NOAA space weather data // bz: {bz} nT // speed: {spd} km/s // density: {den} p/cm3 // storm: {si} // noaa swpc feed live // magnetometer active // plasma data active // \u2593\u2588 ';
 const hudEl=document.getElementById('hud');
 const btnEl=document.getElementById('sound-btn');
+const photoEl=document.getElementById('screenshot-btn');
 const loadEl=document.getElementById('loading');
 const glitchEl=document.getElementById('glitch');
+const flashEl=document.getElementById('flash');
 const atmosEl=document.getElementById('atmosphere');
 const earthEl=document.getElementById('earth-glow');
+const stormEl=document.getElementById('storm-alert');
+let tlCnv=document.getElementById('tl-cnv');
+let tlCtx=tlCnv.getContext('2d');
 
 async function loadSolarData(){
   try{
@@ -79,6 +116,8 @@ async function loadSolarData(){
     solarWind.speed=parseFloat(lp[2])||400;
     solarWind.bz=parseFloat(lm[3])||0.5;
     solarWind.bt=parseFloat(lm[6])||3;
+    bzHistory.push(solarWind.bz);
+    if(bzHistory.length>500)bzHistory=bzHistory.slice(-500);
     dataLoaded=true;
     loadEl.style.display='none';
   }catch(e){
@@ -86,6 +125,7 @@ async function loadSolarData(){
     solarWind.density=3+random(-1,4);
     solarWind.bz=-2+random(4);
     solarWind.bt=2+random(3);
+    bzHistory.push(solarWind.bz);
     dataLoaded=true;
     loadEl.style.display='none';
   }
@@ -109,7 +149,7 @@ function showLoadingScreen(){
   loadEl.innerHTML=art.map(function(l){
     return '<div class="asciiline">'+l+'</div>';
   }).join('')+
-    '<div class="subtitle">&#9608; pr0xy // SOLAR WIND VISUALIZATION // 2026 &#9608;</div>'+
+    '<div class="subtitle">\u2588 pr0xy // SOLAR WIND VISUALIZATION // 2026 \u2588</div>'+
     '<div class="boot-text">connecting to noaa swpc feed...</div>';
 }
 loadSolarData();
@@ -131,6 +171,29 @@ function updateHUDHTML(){
 <div class="divider"></div>
 <div style="font-size:9px;color:#085">particles: ${particles.length} | fps: ${floor(frameRate())} | ${dataLoaded?'LIVE':'FALLBACK'}</div>
 <div style="font-size:8px;color:#064;margin-top:3px;letter-spacing:1px">${new Date().toISOString().substr(11,8)} UTC</div>`;
+}
+
+function updateStormAlert(){
+  let bz=solarWind.bz;
+  if(bz<-5){
+    stormEl.className='visible';
+    stormEl.innerHTML='STORM ALERT <br>Bz: '+bz.toFixed(1)+' nT<br>'+stormLabel(bz);
+  }else if(bz<-2){
+    stormEl.className='warn';
+    stormEl.innerHTML='ACTIVITY<br>Bz: '+bz.toFixed(1)+' nT<br>ELEVATED';
+  }else{
+    stormEl.className='';
+    stormEl.innerHTML='';
+  }
+}
+
+function stormLabel(bz){
+  if(bz<-12)return 'G5 EXTREME';
+  if(bz<-8)return 'G4 SEVERE';
+  if(bz<-5)return 'G3 STRONG';
+  if(bz<-3)return 'G2 MODERATE';
+  if(bz<-1)return 'G1 MINOR';
+  return 'QUIET';
 }
 
 function setup(){
@@ -155,6 +218,7 @@ function setup(){
     });
   }
   btnEl.addEventListener('click',toggleAudio);
+  photoEl.addEventListener('click',takeScreenshot);
   window.addEventListener('resize',handleResize);
 }
 
@@ -164,6 +228,7 @@ function handleResize(){
   for(let i=0;i<500;i++)stars.push({x:random(width),y:random(height),s:random(0.3,1.8),b:random(30,100),ts:random(0.01,0.05),ph:random(TWO_PI)});
   auroraBands.splice(0);
   for(let i=0;i<7;i++)auroraBands.push({y:height*(0.15+i*0.085),phase:random(TWO_PI),freq:random(0.003,0.014),amp:random(20,55),speed:random(0.0015,0.007),baseHue:random(95,155)});
+  renderTimeline();
 }
 
 function draw(){
@@ -174,15 +239,15 @@ function draw(){
   let isStorm=solarWind.bz<-2&&solarWind.speed>450;
   let stormBoost=constrain(map(solarWind.bz,-5,0,2.0,0.5),0.5,2.0);
 
-  // update CSS atmosphere hue/intensity
+  // CSS atmosphere hue/intensity
   let atmosH=solarWind.bz<0?160:145;
   let atmosA=intensity*0.5;
   atmosEl.style.background=`linear-gradient(to bottom,
     hsla(${atmosH},60%,40%,${atmosA*0.08}) 0%,
     hsla(${atmosH},50%,35%,${atmosA*0.03}) 25%,
     transparent 55%)`;
-  
-  // update earth glow based on storm
+
+  // earth glow based on storm
   let earthH=solarWind.bz<0?lerp(140,350,constrain(abs(solarWind.bz)/6,0,0.4)):140;
   earthEl.style.background=`radial-gradient(ellipse at 50% 100%,
     hsla(${earthH},70%,30%,${0.08*intensity*stormBoost}) 0%,
@@ -202,8 +267,10 @@ function draw(){
   drawParticles();
   drawKeygenText();
   updateHUDHTML();
+  updateStormAlert();
   if(audioEnabled)updateAudio();
   if(fc%600===0)refreshData();
+  if(fc%60===0)renderTimeline();
 }
 
 function drawStars(){
@@ -230,7 +297,7 @@ function drawAurora(isStorm,stormBoost){
     if(solarWind.speed>550)h=lerp(h,25,intensity*0.6);
     if(isStorm)h=lerp(h,285,constrain(abs(solarWind.bz+2)/5,0,0.25));
 
-    // glow layers - 2 only, step x by 8
+    // glow layers
     for(let layer=0;layer<2;layer++){
       let ly=layer*12;
       let a=map(layer,0,2,25,8)*intensity*stormBoost;
@@ -292,7 +359,7 @@ function drawKeygenText(){
     .replace('{bz}',solarWind.bz.toFixed(2))
     .replace('{spd}',solarWind.speed.toFixed(0))
     .replace('{den}',solarWind.density.toFixed(2))
-    .replace('{si}',isG5()?'G5':isG4()?'G4':isG3()?'G3':isG2()?'G2':solarWind.bz<0?'G0-G1':'QUIET');
+    .replace('{si}',stormLabel(solarWind.bz));
   textSize(10);
   let tw=textWidth(msg);
   scrollX-=0.6;
@@ -308,12 +375,10 @@ function drawKeygenText(){
   stroke(120,60,70,18);
   strokeWeight(1);
   let bm=8,bl=22;
-  // bottom
   line(bm,height-bm-bl,bm,height-bm);
   line(bm,height-bm,bm+bl,height-bm);
   line(width-bm,height-bm-bl,width-bm,height-bm);
   line(width-bm-bl,height-bm,width-bm,height-bm);
-  // top
   let hh=min(hudEl.offsetHeight+18,120);
   line(3,3,3,hh);
   line(3,3,bl+3,3);
@@ -321,11 +386,6 @@ function drawKeygenText(){
   line(width-bl-3,3,width-3,3);
   noStroke();
 }
-
-function isG5(){return solarWind.bz<-12}
-function isG4(){return solarWind.bz<-8}
-function isG3(){return solarWind.bz<-5}
-function isG2(){return solarWind.bz<-3}
 
 function drawParticles(){
   let spawnRate=map(solarWind.speed+solarWind.density*30,300,900,0.04,0.16);
@@ -359,6 +419,68 @@ function drawParticles(){
   }
 }
 
+// 24h Bz sparkline timeline
+function renderTimeline(){
+  if(!tlCnv)return;
+  let w=tlCnv.width;
+  let h=tlCnv.height;
+  if(bzHistory.length<2){
+    bzHistory=[0,0.5,-1,0.2,-2,solarWind.bz];
+  }
+  let data=bzHistory.slice(-120); // last 120 samples
+  let minBz=-15,maxBz=5;
+  tlCtx.clearRect(0,0,w,h);
+  // label
+  tlCtx.fillStyle='rgba(0,255,128,0.4)';
+  tlCtx.font='8px Courier New';
+  tlCtx.fillText('Bz 24h  min:'+min(data).toFixed(1),3,9);
+  // zero line
+  let zeroY=map(0,minBz,maxBz,h,0);
+  tlCtx.strokeStyle='rgba(0,255,128,0.15)';
+  tlCtx.lineWidth=1;
+  tlCtx.beginPath();
+  tlCtx.moveTo(0,zeroY);
+  tlCtx.lineTo(w,zeroY);
+  tlCtx.stroke();
+  // fill area
+  tlCtx.beginPath();
+  for(let i=0;i<data.length;i++){
+    let x=map(i,0,data.length-1,20,w-2);
+    let y=map(data[i],minBz,maxBz,h-2,2);
+    if(i===0)tlCtx.moveTo(x,y);
+    else tlCtx.lineTo(x,y);
+  }
+  let lastX=map(data.length-1,0,data.length-1,20,w-2);
+  tlCtx.lineTo(lastX,h);
+  tlCtx.lineTo(20+(0)*(w-22),h);
+  tlCtx.closePath();
+  // negative Bz (storm) = red fill
+  tlCtx.fillStyle='rgba(255,60,60,0.15)';
+  tlCtx.fill();
+  // line
+  tlCtx.beginPath();
+  for(let i=0;i<data.length;i++){
+    let x=map(i,0,data.length-1,20,w-2);
+    let y=map(data[i],minBz,maxBz,h-2,2);
+    if(i===0)tlCtx.moveTo(x,y);
+    else tlCtx.lineTo(x,y);
+  }
+  let currentBz=data[data.length-1];
+  const bzColor=currentBz<-3?'#f33':currentBz<-1?'#f80':'#0f8';
+  tlCtx.strokeStyle=bzColor;
+  tlCtx.lineWidth=1.5;
+  tlCtx.stroke();
+  // current point
+  let cx=map(data.length-1,0,data.length-1,20,w-2);
+  let cy=map(currentBz,minBz,maxBz,h-2,2);
+  tlCtx.beginPath();
+  tlCtx.arc(cx,cy,3,0,Math.PI*2);
+  tlCtx.fillStyle=bzColor;
+  tlCtx.fill();
+}
+
+function min(arr){return Math.min.apply(null,arr);}
+
 async function refreshData(){
   try{
     const [pR,mR]=await Promise.all([fetch(NOAA_PLASMA),fetch(NOAA_MAG)]);
@@ -368,7 +490,49 @@ async function refreshData(){
     solarWind.speed=parseFloat(lp[2])||solarWind.speed;
     solarWind.bz=parseFloat(lm[3])||solarWind.bz;
     solarWind.bt=parseFloat(lm[6])||solarWind.bt;
+    bzHistory.push(solarWind.bz);
+    if(bzHistory.length>500)bzHistory=bzHistory.slice(-500);
+    renderTimeline();
   }catch(e){}
+}
+
+function takeScreenshot(){
+  // flash effect
+  flashEl.classList.add('flash');
+  setTimeout(()=>flashEl.classList.remove('flash'),200);
+  // grab canvas, draw composite
+  let sc=document.createElement('canvas');
+  let sw=width,sh=height;
+  sc.width=sw;sc.height=sh;
+  let sctx=sc.getContext('2d');
+  // main canvas
+  let mc=document.querySelector('#main canvas');
+  if(mc)sctx.drawImage(mc,0,0);
+  // scanlines
+  sctx.fillStyle='rgba(0,0,0,0.04)';
+  for(let y=0;y<sh;y+=3)sctx.fillRect(0,y,sw,1);
+  // vignette gradient
+  let vg=sctx.createRadialGradient(sw/2,sh/2,sw*0.3,sw/2,sh/2,sw*0.7);
+  vg.addColorStop(0,'transparent');
+  vg.addColorStop(1,'rgba(0,0,0,0.5)');
+  sctx.fillStyle=vg;
+  sctx.fillRect(0,0,sw,sh);
+  // HUD text
+  sctx.font='11px Courier New';
+  sctx.fillStyle='#0f8';
+  let y=28;
+  sctx.fillText('pr0xy // SOLAR WIND AURORA',15,y);
+  sctx.font='10px Courier New';
+  y+=20;sctx.fillText('speed: '+solarWind.speed.toFixed(1)+' km/s  |  dens: '+solarWind.density.toFixed(2)+' p/cm³',15,y);
+  y+=16;sctx.fillText('Bz: '+solarWind.bz.toFixed(2)+' nT  |  Bt: '+solarWind.bt.toFixed(2)+' nT  |  '+stormLabel(solarWind.bz),15,y);
+  y+=16;sctx.fillStyle='#064';sctx.fillText(new Date().toISOString().substr(0,19).replace('T',' ')+' UTC  |  xpr0xy.github.io/meteor-watch-signal',15,y);
+  // download
+  sc.toBlob(function(blob){
+    let url=URL.createObjectURL(blob);
+    let a=document.createElement('a');
+    a.href=url;a.download='solar-wind-'+Date.now()+'.png';
+    a.click();URL.revokeObjectURL(url);
+  });
 }
 
 function toggleAudio(){
