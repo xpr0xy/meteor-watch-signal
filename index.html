@@ -87,7 +87,12 @@ let particles=[];
 let auroraBands=[];
 let stars=[];
 let audioCtx=null,audioEnabled=false;
-let masterGain,drone1,drone2,drone3,sunSrc,sunFilter,delay,feedback,lfo1,lfo2,lfo3;
+let masterGain,masterLP,distortion;
+let drone1,drone2,drone3,drone4,drone5;
+let sunSrc,sunFilter,rumbleSrc,rumbleFilt;
+let del1,del1fb,del1lp,del2,del2fb,del2lp,del3,del3fb,del3lp;
+let rev1,rev1lp,rev1fb,rev2,rev2lp,rev2fb,rev3,rev3lp,rev3fb,rev4,rev4lp,rev4fb;
+let lfo1,lfo2,lfo3,lfo4,lfo5,lfo6;
 let fc=0;
 let dataLoaded=false;
 let intensity=1;
@@ -535,66 +540,224 @@ function takeScreenshot(){
   });
 }
 
+// distortion curve for waveshaper - soft clipping
+function makeDistCurve(amt){
+  let n=44100,curve=new Float32Array(n);
+  for(let i=0;i<n;i++){
+    let x=i*2/n-1;
+    curve[i]=(3+amt)*x*20*(Math.PI/180)/(Math.PI+amt*Math.abs(x));
+  }
+  return curve;
+}
+
 function toggleAudio(){
   if(!audioEnabled){
     audioCtx=new(window.AudioContext||window.webkitAudioContext)();
     masterGain=audioCtx.createGain();
     masterGain.gain.value=0;
-    masterGain.connect(audioCtx.destination);
 
-    drone1=audioCtx.createOscillator();drone1.type='sawtooth';drone1.frequency.value=55;
-    let g1=audioCtx.createGain();g1.gain.value=0.1;drone1.connect(g1);g1.connect(masterGain);drone1.start();
+    // master lowpass - dark from the start
+    masterLP=audioCtx.createBiquadFilter();
+    masterLP.type='lowpass';
+    masterLP.frequency.value=800;
+    masterLP.Q.value=0.7;
 
-    drone2=audioCtx.createOscillator();drone2.type='sine';drone2.frequency.value=73.5;
-    let g2=audioCtx.createGain();g2.gain.value=0.08;drone2.connect(g2);g2.connect(masterGain);drone2.start();
+    // soft distortion for sub-harmonic grit
+    distortion=audioCtx.createWaveShaper();
+    distortion.curve=makeDistCurve(80);
+    distortion.oversample='4x';
 
-    drone3=audioCtx.createOscillator();drone3.type='triangle';drone3.frequency.value=110;
-    let g3=audioCtx.createGain();g3.gain.value=0.06;drone3.connect(g3);g3.connect(masterGain);drone3.start();
+    masterGain.connect(masterLP);
+    masterLP.connect(distortion);
+    distortion.connect(audioCtx.destination);
 
+    // === SUB BASS DRONE 1: 32hz sine - the foundation ===
+    drone1=audioCtx.createOscillator();
+    drone1.type='sine';
+    drone1.frequency.value=32;
+    let d1g=audioCtx.createGain();
+    d1g.gain.value=0.18;
+    let d1lp=audioCtx.createBiquadFilter();
+    d1lp.type='lowpass';d1lp.frequency.value=60;d1lp.Q.value=2;
+    drone1.connect(d1g);d1g.connect(d1lp);d1lp.connect(masterGain);
+    drone1.start();
+
+    // === DRONE 2: 48hz sawtooth - body ===
+    drone2=audioCtx.createOscillator();
+    drone2.type='sawtooth';
+    drone2.frequency.value=48;
+    let d2g=audioCtx.createGain();
+    d2g.gain.value=0.06;
+    let d2lp=audioCtx.createBiquadFilter();
+    d2lp.type='lowpass';d2lp.frequency.value=120;d2lp.Q.value=1;
+    drone2.connect(d2g);d2g.connect(d2lp);d2lp.connect(masterGain);
+    drone2.start();
+
+    // === DRONE 3: 64hz triangle - warmth ===
+    drone3=audioCtx.createOscillator();
+    drone3.type='triangle';
+    drone3.frequency.value=64;
+    let d3g=audioCtx.createGain();
+    d3g.gain.value=0.07;
+    drone3.connect(d3g);d3g.connect(masterGain);
+    drone3.start();
+
+    drone4=audioCtx.createOscillator();
+    drone4.type='sine';
+    drone4.frequency.value=96;
+    let d4g=audioCtx.createGain();
+    d4g.gain.value=0.04;
+    drone4.connect(d4g);d4g.connect(masterGain);
+    drone4.start();
+
+    // === DRONE 5: 51hz detuned sine - beating ===
+    drone5=audioCtx.createOscillator();
+    drone5.type='sine';
+    drone5.frequency.value=51;
+    let d5g=audioCtx.createGain();
+    d5g.gain.value=0.1;
+    drone5.connect(d5g);d5g.connect(masterGain);
+    drone5.start();
+
+    // === SOLAR WIND NOISE: bandpass filtered ===
     let bs=audioCtx.sampleRate*2;
     let nb=audioCtx.createBuffer(1,bs,audioCtx.sampleRate);
     let dd=nb.getChannelData(0);
     for(let i=0;i<bs;i++)dd[i]=Math.random()*2-1;
     sunSrc=audioCtx.createBufferSource();sunSrc.buffer=nb;sunSrc.loop=true;
-    sunFilter=audioCtx.createBiquadFilter();sunFilter.type='bandpass';sunFilter.frequency.value=400;sunFilter.Q.value=1.5;
-    let ng=audioCtx.createGain();ng.gain.value=0.04;
+    sunFilter=audioCtx.createBiquadFilter();sunFilter.type='bandpass';sunFilter.frequency.value=300;sunFilter.Q.value=2;
+    let ng=audioCtx.createGain();ng.gain.value=0.025;
     sunSrc.connect(sunFilter);sunFilter.connect(ng);ng.connect(masterGain);sunSrc.start();
 
-    delay=audioCtx.createDelay(1.0);delay.delayTime.value=0.35;
-    feedback=audioCtx.createGain();feedback.gain.value=0.4;
-    masterGain.connect(delay);delay.connect(feedback);feedback.connect(delay);
-    let dg=audioCtx.createGain();dg.gain.value=0.25;delay.connect(dg);dg.connect(audioCtx.destination);
+    // === SUB RUMBLE: low frequency noise layer ===
+    let rb=audioCtx.createBuffer(1,bs,audioCtx.sampleRate);
+    let rd=rb.getChannelData(0);
+    for(let i=0;i<bs;i++){
+      rd[i]=(Math.random()*2-1)*0.5+(i>bs*0.9?rd[i-bs*0.9]:0)*0.5;
+    }
+    rumbleSrc=audioCtx.createBufferSource();rumbleSrc.buffer=rb;rumbleSrc.loop=true;
+    rumbleFilt=audioCtx.createBiquadFilter();rumbleFilt.type='lowpass';rumbleFilt.frequency.value=200;rumbleFilt.Q.value=3;
+    let rg=audioCtx.createGain();rg.gain.value=0.06;
+    rumbleSrc.connect(rumbleFilt);rumbleFilt.connect(rg);rg.connect(masterGain);rumbleSrc.start();
 
-    lfo1=audioCtx.createOscillator();lfo1.type='sine';lfo1.frequency.value=0.12;
-    let lf1=audioCtx.createGain();lf1.gain.value=0.08;lfo1.connect(lf1);lf1.connect(g1.gain);lfo1.start();
+    // === CASCADE DELAY 1: 0.45s ===
+    del1=audioCtx.createDelay(1.0);del1.delayTime.value=0.45;
+    del1lp=audioCtx.createBiquadFilter();del1lp.type='lowpass';del1lp.frequency.value=600;del1lp.Q.value=1;
+    del1fb=audioCtx.createGain();del1fb.gain.value=0.75;
+    masterGain.connect(del1);del1.connect(del1lp);del1lp.connect(del1fb);del1fb.connect(del1);
+    let dg1=audioCtx.createGain();dg1.gain.value=0.35;del1lp.connect(dg1);dg1.connect(masterGain);
 
-    lfo2=audioCtx.createOscillator();lfo2.type='sine';lfo2.frequency.value=0.07;
-    let lf2=audioCtx.createGain();lf2.gain.value=0.05;lfo2.connect(lf2);lf2.connect(sunFilter.frequency);lfo2.start();
+    // === DELAY 2: 0.68s ===
+    del2=audioCtx.createDelay(1.0);del2.delayTime.value=0.68;
+    del2lp=audioCtx.createBiquadFilter();del2lp.type='lowpass';del2lp.frequency.value=400;del2lp.Q.value=0.8;
+    del2fb=audioCtx.createGain();del2fb.gain.value=0.65;
+    masterGain.connect(del2);del2.connect(del2lp);del2lp.connect(del2fb);del2fb.connect(del2);
+    let dg2=audioCtx.createGain();dg2.gain.value=0.2;del2lp.connect(dg2);dg2.connect(masterGain);
 
-    lfo3=audioCtx.createOscillator();lfo3.type='sine';lfo3.frequency.value=0.03;
-    let lf3=audioCtx.createGain();lf3.gain.value=35;lfo3.connect(lf3);lf3.connect(drone1.frequency);lfo3.start();
+    // === DELAY 3: 0.83s (feedback only into reverb) ===
+    del3=audioCtx.createDelay(1.0);del3.delayTime.value=0.83;
+    del3lp=audioCtx.createBiquadFilter();del3lp.type='lowpass';del3lp.frequency.value=250;del3lp.Q.value=0.5;
+    del3fb=audioCtx.createGain();del3fb.gain.value=0.7;
+    masterGain.connect(del3);del3.connect(del3lp);del3lp.connect(del3fb);del3fb.connect(del3);
+    let dg3=audioCtx.createGain();dg3.gain.value=0.15;del3lp.connect(dg3);dg3.connect(masterGain);
 
-    masterGain.gain.linearRampToValueAtTime(0.65,audioCtx.currentTime+2.5);
+    // === 4x ALL-PASS REVERB TANK ===
+    rev1=audioCtx.createBiquadFilter();rev1.type='allpass';rev1.frequency.value=100;
+    rev1lp=audioCtx.createBiquadFilter();rev1lp.type='lowpass';rev1lp.frequency.value=300;
+    rev1fb=audioCtx.createGain();rev1fb.gain.value=0.7;
+    rev2=audioCtx.createBiquadFilter();rev2.type='allpass';rev2.frequency.value=300;
+    rev2lp=audioCtx.createBiquadFilter();rev2lp.type='lowpass';rev2lp.frequency.value=250;
+    rev2fb=audioCtx.createGain();rev2fb.gain.value=0.65;
+    rev3=audioCtx.createBiquadFilter();rev3.type='allpass';rev3.frequency.value=1000;
+    rev3lp=audioCtx.createBiquadFilter();rev3lp.type='lowpass';rev3lp.frequency.value=200;
+    rev3fb=audioCtx.createGain();rev3fb.gain.value=0.55;
+    rev4=audioCtx.createBiquadFilter();rev4.type='allpass';rev4.frequency.value=2500;
+    rev4lp=audioCtx.createBiquadFilter();rev4lp.type='lowpass';rev4lp.frequency.value=150;
+    rev4fb=audioCtx.createGain();rev4fb.gain.value=0.45;
+
+    masterGain.connect(rev1);rev1.connect(rev1lp);rev1lp.connect(rev1fb);rev1fb.connect(rev1);
+    rev1lp.connect(rev2);rev2.connect(rev2lp);rev2lp.connect(rev2fb);rev2fb.connect(rev2);
+    rev2lp.connect(rev3);rev3.connect(rev3lp);rev3lp.connect(rev3fb);rev3fb.connect(rev3);
+    rev3lp.connect(rev4);rev4.connect(rev4lp);rev4lp.connect(rev4fb);rev4fb.connect(rev4);
+
+    let revWet=audioCtx.createGain();revWet.gain.value=0.6;
+    rev4lp.connect(revWet);revWet.connect(masterGain);
+
+    // === LFO 1: slow tremolo on drone2 (sawtooth) ===
+    lfo1=audioCtx.createOscillator();lfo1.type='sine';lfo1.frequency.value=0.08;
+    let lf1g=audioCtx.createGain();lf1g.gain.value=0.04;
+    lfo1.connect(lf1g);lf1g.connect(d2g.gain);lfo1.start();
+
+    // === LFO 2: rumble filter LFO ===
+    lfo2=audioCtx.createOscillator();lfo2.type='sine';lfo2.frequency.value=0.04;
+    let lf2g=audioCtx.createGain();lf2g.gain.value=80;
+    lfo2.connect(lf2g);lf2g.connect(rumbleFilt.frequency);lfo2.start();
+
+    // === LFO 3: sub drone freq wander ===
+    lfo3=audioCtx.createOscillator();lfo3.type='sine';lfo3.frequency.value=0.015;
+    let lf3g=audioCtx.createGain();lf3g.gain.value=8;
+    lfo3.connect(lf3g);lf3g.connect(drone1.frequency);lfo3.start();
+
+    // === LFO 4: solar noise LFO ===
+    lfo4=audioCtx.createOscillator();lfo4.type='sawtooth';lfo4.frequency.value=0.01;
+    let lf4g=audioCtx.createGain();lf4g.gain.value=150;
+    lfo4.connect(lf4g);lf4g.connect(sunFilter.frequency);lfo4.start();
+
+    // === LFO 5: delay time drift ===
+    lfo5=audioCtx.createOscillator();lfo5.type='sine';lfo5.frequency.value=0.06;
+    let lf5g=audioCtx.createGain();lf5g.gain.value=0.05;
+    lfo5.connect(lf5g);lf5g.connect(del1.delayTime);lfo5.start();
+
+    // === LFO 6: master filter LFO ===
+    lfo6=audioCtx.createOscillator();lfo6.type='sine';lfo6.frequency.value=0.02;
+    let lf6g=audioCtx.createGain();lf6g.gain.value=100;
+    lfo6.connect(lf6g);lf6g.connect(masterLP.frequency);lfo6.start();
+
+    masterGain.gain.linearRampToValueAtTime(0.55,audioCtx.currentTime+4);
     audioEnabled=true;
     btnEl.textContent='disable sound';
     btnEl.classList.add('active');
   }else{
-    if(masterGain)masterGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.8);
+    if(masterGain)masterGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+1.5);
     setTimeout(()=>{
       audioEnabled=false;
       if(audioCtx){audioCtx.close();audioCtx=null;}
       btnEl.textContent='enable sound';
       btnEl.classList.remove('active');
-    },900);
+    },1700);
   }
 }
 
 function updateAudio(){
   let t=audioCtx.currentTime;
-  if(drone1)drone1.frequency.linearRampToValueAtTime(40+solarWind.speed*0.025,t+0.5);
-  if(drone2)drone2.frequency.linearRampToValueAtTime(55+solarWind.bz*3,t+0.5);
-  if(drone3)drone3.frequency.linearRampToValueAtTime(80+solarWind.density*4,t+0.5);
-  if(sunFilter)sunFilter.frequency.linearRampToValueAtTime(200+constrain(solarWind.bz+3,0,5)*100,t+0.5);
+  let speedMod=solarWind.speed*0.005;
+  let bzMod=solarWind.bz;
+  let denMod=solarWind.density;
+
+  // sub bass - drone1 stays anchored
+  if(drone1)drone1.frequency.linearRampToValueAtTime(30+bzMod*0.5,t+0.5);
+  // saw drone - follows speed, darker
+  if(drone2)drone2.frequency.linearRampToValueAtTime(44+speedMod,t+0.5);
+  // triangle - warmth layer
+  if(drone3)drone3.frequency.linearRampToValueAtTime(60+denMod*3,t+0.5);
+  // fourth - harmonic
+  if(drone4)drone4.frequency.linearRampToValueAtTime(90+speedMod*0.5,t+0.5);
+  // fifth - detuners for beating
+  if(drone5)drone5.frequency.linearRampToValueAtTime(48+bzMod*0.8,t+0.5);
+
+  // noise filters
+  if(sunFilter)sunFilter.frequency.linearRampToValueAtTime(200+constrain(bzMod+3,0,5)*80,t+0.5);
+  if(rumbleFilt)rumbleFilt.frequency.linearRampToValueAtTime(120+denMod*10,t+0.5);
+
+  // master filter opens up with storm activity
+  if(masterLP){
+    let stormIntensity=constrain(abs(bzMod)/10,0,1);
+    masterLP.frequency.linearRampToValueAtTime(500+stormIntensity*600,t+0.5);
+    masterLP.Q.linearRampToValueAtTime(0.7+stormIntensity*2,t+0.5);
+  }
+
+  // delay 1 time shifts with solar wind
+  if(del1)del1.delayTime.linearRampToValueAtTime(0.35+speedMod*0.0001,t+0.5);
 }
 </script>
 </body>
